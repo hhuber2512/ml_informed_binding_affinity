@@ -1,5 +1,11 @@
 using Catalyst, ModelingToolkit
 
+#declare variables for symbolic indexing/mapping
+#symbolic mappings are recommeded for indexing per ModelingToolkit, as variable order isn't guaranteed
+#source: https://docs.sciml.ai/SymbolicIndexingInterface/stable/usage/
+@parameters t k_1 k_1inv k_2 k_3 k_4 k_5 k_6 k_7 
+@variables L(t) R(t) RL(t) Gd(t) Gbg(t) G(t) Ga(t)
+
 """
 
 gpcr\\_ode()
