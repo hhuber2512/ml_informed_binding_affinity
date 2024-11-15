@@ -11,6 +11,24 @@ using DynamicPPL
 include("model.jl")
 include("target_probability.jl")
 
+"""
+
+affine\\_invariant\\_mcmc\\_firstrun(n\\_ensemble: Int64, n\\_walkers": Int64, n\\_iterations: Int64, target\\_probability:DynamicPPL.Model, test\\_case:String) \n
+
+Generate first samples from target\\_probability. Samples n\\_ensembles of n\\_walkers for n\\_iterations using emcee posterior inference algorithm \n
+First samples are generated from prior distribution. \n 
+
+Parameters: \n
+n\\_ensemble: Int64, number of independent emcee ensembles\n
+n\\_walkers": Int64, number of emcee walkers per ensemble\n
+n\\_iterations: Int64, number of iterations per walker \n 
+target\\_probability:DynamicPPL.Model, target distribution, here, posterior, for sampling. Generated from Turing\\.@model macro\n
+test\\_case:String, unregularized vs regularized test case \n
+
+Should return: \n
+Nothing. Automatically serializes MCMChain, naming based on test\\_case. 
+
+"""
 function affine_invariant_mcmc_firstrun(n_ensemble, n_walkers, n_iterations, target_probability, test_case)
     # wrap probability model so that it is now a LogDensityFunction 
     # we do this because MCMCTempering is compatible with the LogDensityFunction...
@@ -74,6 +92,24 @@ function affine_invariant_mcmc_firstrun(n_ensemble, n_walkers, n_iterations, tar
 
 end
 
+"""
+
+affine\\_invariant\\_mcmc(n\\_ensemble: Int64, n\\_walkers": Int64, n\\_iterations: Int64, target\\_probability:DynamicPPL.Model, sub\\_chain: Int64, test\\_case:String) \n
+
+Generate samples from target\\_probability, starting from previous samples. Samples n\\_ensembles of n\\_walkers for n\\_iterations using emcee posterior inference algorithm \n
+
+Parameters: \n
+n\\_ensemble: Int64, number of independent emcee ensembles\n
+n\\_walkers": Int64, number of emcee walkers per ensemble\n
+n\\_iterations: Int64, number of iterations per walker \n 
+target\\_probability:DynamicPPL.Model, target distribution, here, posterior, for sampling. Generated from Turing\\.@model macro\n
+sub\\_chain: Int64, indicates how many previous samples we've completed. \n
+test\\_case:String, unregularized vs regularized test case \n
+
+Should return: \n
+Nothing. Automatically serializes MCMChain, naming based on test\\_case. 
+
+"""
 function affine_invariant_mcmc(n_ensemble, n_walkers, n_iterations, target_probability, sub_chain, test_case)
     # wrap probability model so that it is now a LogDensityFunction 
     # we do this because MCMCTempering is compatible with the LogDensityFunction...
@@ -118,8 +154,8 @@ function affine_invariant_mcmc(n_ensemble, n_walkers, n_iterations, target_proba
     rngs = [StableRNG(12), StableRNG(25), StableRNG(75), StableRNG(50)];
 
     # Load init values to resume from for each chain using Serialization
-    previous_chains = Vector{Any}(undef, nchains)
-    for i in 1:nchains
+    previous_chains = Vector{Any}(undef, n_ensemble)
+    for i in 1:n_ensemble
         initval = Vector{Any}(undef, n_walkers)
         previous_chains[i] = deserialize(string("outputs/posterior_samples_$(test_case)_ensemble$(i)_walkers$(n_walkers)_iter$(n_iterations)_$(sub_chain-1).jls"))[1]
         for j in 1:n_walkers

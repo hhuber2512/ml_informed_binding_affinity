@@ -1,20 +1,14 @@
 using Catalyst, ModelingToolkit
 
-#declare variables for symbolic indexing/mapping
-#symbolic mappings are recommeded for indexing per ModelingToolkit, as variable order isn't guaranteed
-#source: https://docs.sciml.ai/SymbolicIndexingInterface/stable/usage/
-@parameters t k_1 k_1inv k_2 k_3 k_4 k_5 k_6 k_7 
-@variables L(t) R(t) RL(t) Gd(t) Gbg(t) G(t) Ga(t)
-
 """
 
 gpcr\\_ode()
 
-Function defines a (complete) Catalyst.ReactionSystem via via rules-based modeling macro @reaction\\_network. \n 
+Defines a (complete) Catalyst.ReactionSystem via via rules-based modeling macro @reaction\\_network. \n 
 ReactionSystem will need to be converted to a ModelingToolkit type for simulation. \n
 May use Catalyst methods species() and parameters() \n
 Species units are molecules, rate constants are 1/sec or 1/sec*molecules \n
-We defined default initial conditions and parameter values, which were reported in Yi et al. \n
+Defines default initial conditions and parameter values, which were reported in Yi et al. \n
 
 Should return: \n
 Catalyst.ReactionSystem
