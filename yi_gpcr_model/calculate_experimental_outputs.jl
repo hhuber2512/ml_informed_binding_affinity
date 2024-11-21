@@ -21,3 +21,27 @@ function calculate_active_G_protein_fraction(predicted)
     fraction_activated = predicted[:Ga]./total_G;
     return fraction_activated
 end
+
+function simulate_dose_response_G(solver_inputs, op, ligand_dose)
+    new_op = remake(op, u0=[:R=>10000.0, :L=>ligand_dose, :RL=>0.0, :Gd=>0, :Gbg=>3000.0, :G=>7000.0, :Ga=>0.0])
+    predicted = DifferentialEquations.solve(new_op, solver_inputs["solver"], abstol=solver_inputs["abstol"], reltol=solver_inputs["reltol"], saveat=solver_inputs["saveat"])
+    return calculate_active_G_protein_fraction(predicted)[1]
+end
+
+function simulate_dose_response(solver_inputs, op, ligand_dose)
+    new_op = remake(op, u0=[:R=>10000.0, :L=>ligand_dose, :RL=>0.0, :Gd=>0, :Gbg=>3000.0, :G=>7000.0, :Ga=>0.0])
+    predicted = DifferentialEquations.solve(new_op, solver_inputs["solver"], abstol=solver_inputs["abstol"], reltol=solver_inputs["reltol"], saveat=solver_inputs["saveat"])
+    return predicted
+end
+
+function simulate_dose_response(solver_inputs, op, ligand_dose)
+    new_op = remake(op, u0=[:R=>10000.0, :L=>ligand_dose, :RL=>0.0, :Gd=>0, :Gbg=>3000.0, :G=>7000.0, :Ga=>0.0])
+    predicted = DifferentialEquations.solve(new_op, solver_inputs["solver"], abstol=solver_inputs["abstol"], reltol=solver_inputs["reltol"], saveat=solver_inputs["saveat"])
+    return predicted
+end
+
+function simulate_dose_response_optimized(solver_inputs, op, ligand_dose, dose_setter)
+    dose_setter(op, ligand_dose)
+    predicted = DifferentialEquations.solve(op, solver_inputs["solver"], abstol=solver_inputs["abstol"], reltol=solver_inputs["reltol"], saveat=solver_inputs["saveat"])
+    return predicted
+end

@@ -30,7 +30,7 @@ Turing.@model function logprob_regularized(data, odeproblem, σ, regularization,
     k_6 ~ Uniform(-5,-1) #k_6=>0.0040 (4E-3)
     k_7 ~ Uniform(-3,1) #k_7=>0.11 (1.1E-1)
 
-    #regularization term, logscale 
+    #regularization factor
     Turing.@addlogprob! regularize(regularization, k_1inv, k_1)
 
     #initial protein concentration units are molecules (here, we only infer one initial condition)
@@ -58,32 +58,25 @@ Turing.@model function logprob_regularized(data, odeproblem, σ, regularization,
     end
     fraction_activated_timecourse = calculate_active_G_protein_fraction(predicted)
 
-    #dose response simulation
-    #need only redefine save_at, all other solver inputs are the same
-    save_at = odesolver_dose_response["saveat"]
-    
-    predicted_responses = []
-    for i in ligand_dose
-        u0 = [:R => 10000.0, :L => i, :RL => 0.0, :Gd => 3000.0, :Gbg => 3000.0, :G => exp(G), :Ga => 0.0] 
-        op = remake(op,u0=u0)
-        predicted = DifferentialEquations.solve(op, QNDF(), abstol=1e-5, reltol=1e-6, saveat=save_at);
-        #Early exit if simulation could not be computed successfully.
-        if predicted.retcode !== ReturnCode.Success
-            Turing.@addlogprob! -Inf
-            return
-        end
-        fraction_activated = calculate_active_G_protein_fraction(predicted)
-        append!(predicted_responses, fraction_activated)
+    #simulate dose responses in parallel using @spawned macro
+    type_ode = typeof(predicted)
+    #initialize array. Didn't use undef, because this led to UndefRefError: access to undefined reference error
+    predicted_responses = fill(predicted, length(ligand_dose))
+
+    Threads.@threads for i in 1:length(ligand_dose)
+        predicted_responses[i] = simulate_dose_response(odesolver_dose_response, op, ligand_dose[i])
     end
 
-    #extract response we normalize to
-    u0 = [:R => 10000.0, :L => normalization_dose, :RL => 0.0, :Gd => 3000.0, :Gbg => 3000.0, :G => exp(G), :Ga => 0.0]
-    op = remake(op, u0=u0)
-    predicted = DifferentialEquations.solve(op, QNDF(), abstol=1e-5, reltol=1e-6, saveat=save_at);
-    normalize_to = calculate_active_G_protein_fraction(predicted)
-
-    #note, 1 uM corresponds to last stored dose response
-    scaled_response = predicted_responses./normalize_to;
+    #Early exit if simulation could not be computed successfully.
+    if any([predicted_responses[i].retcode !== ReturnCode.Success for i in 1:length(predicted_responses)])
+        Turing.@addlogprob! -Inf
+        return
+    end
+    
+    #calculate output of interest, active G protein
+    fraction_activated = [calculate_active_G_protein_fraction(i)[1] for i in predicted_responses]
+    #normalize to final dose response (1 uM), and exclude this final dose response from fitting
+    scaled_response = (fraction_activated./fraction_activated[end])[1:end-1]
 
     #combine all predictions into an array
     all_predictions = vcat(fraction_activated_timecourse, scaled_response)
@@ -107,7 +100,7 @@ Should return: \n
 joint loglikelihood, type: DynamicPPL.Model
 
 """
-Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_timecourse, odesolver_dose_response, ligand_dose, normalization_dose)
+Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_timecourse, odesolver_dose_response, ligand_dose)
     #define prior distributions
     k_1 ~ Uniform(-20,-16) #k_1 = 3.32e-18
     k_1inv ~ Uniform(-4,0) #kinv = 1e-2
@@ -143,32 +136,25 @@ Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_tim
     end
     fraction_activated_timecourse = calculate_active_G_protein_fraction(predicted)
 
-    #dose response simulation
-    #need only redefine save_at, all other solver inputs are the same
-    save_at = odesolver_dose_response["saveat"]
-    
-    predicted_responses = []
-    for i in ligand_dose
-        u0 = [:R => 10000.0, :L => i, :RL => 0.0, :Gd => 3000.0, :Gbg => 3000.0, :G => exp(G), :Ga => 0.0] 
-        op = remake(op,u0=u0)
-        predicted = DifferentialEquations.solve(op, QNDF(), abstol=1e-5, reltol=1e-6, saveat=save_at);
-        #Early exit if simulation could not be computed successfully.
-        if predicted.retcode !== ReturnCode.Success
-            Turing.@addlogprob! -Inf
-            return
-        end
-        fraction_activated = calculate_active_G_protein_fraction(predicted)
-        append!(predicted_responses, fraction_activated)
+    #simulate dose responses in parallel using @spawned macro
+    type_ode = typeof(predicted)
+    #initialize array. Didn't use undef, because this led to UndefRefError: access to undefined reference error
+    predicted_responses = fill(predicted, length(ligand_dose))
+
+    Threads.@threads for i in 1:length(ligand_dose)
+        predicted_responses[i] = simulate_dose_response(odesolver_dose_response, op, ligand_dose[i])
     end
 
-    #extract response we normalize to
-    u0 = [:R => 10000.0, :L => normalization_dose, :RL => 0.0, :Gd => 3000.0, :Gbg => 3000.0, :G => exp(G), :Ga => 0.0]
-    op = remake(op, u0=u0)
-    predicted = DifferentialEquations.solve(op, QNDF(), abstol=1e-5, reltol=1e-6, saveat=save_at);
-    normalize_to = calculate_active_G_protein_fraction(predicted)
-
-    #note, 1 uM corresponds to last stored dose response
-    scaled_response = predicted_responses./normalize_to;
+    #Early exit if simulation could not be computed successfully.
+    if any([predicted_responses[i].retcode !== ReturnCode.Success for i in 1:length(predicted_responses)])
+        Turing.@addlogprob! -Inf
+        return
+    end
+    
+    #calculate output of interest, active G protein
+    fraction_activated = [calculate_active_G_protein_fraction(i)[1] for i in predicted_responses]
+    #normalize to final dose response (1 uM), and exclude this final dose response from fitting
+    scaled_response = (fraction_activated./fraction_activated[end])[1:end-1]
 
     #combine all predictions into an array
     all_predictions = vcat(fraction_activated_timecourse, scaled_response)
