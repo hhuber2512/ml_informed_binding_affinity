@@ -19,7 +19,7 @@ joint loglikelihood, type: DynamicPPL.Model
 
 """
 
-Turing.@model function logprob_regularized(data, odeproblem, σ, regularization, odesolver_timecourse, odesolver_dose_response, ligand_dose, normalization_dose)
+Turing.@model function logprob_regularized(data, odeproblem, σ, regularization, odesolver_timecourse, odesolver_dose_response, ligand_dose)
     #define prior distributions
     k_1 ~ Uniform(-20,-16) #k_1 = 3.32e-18
     k_1inv ~ Uniform(-4,0) #kinv = 1e-2
