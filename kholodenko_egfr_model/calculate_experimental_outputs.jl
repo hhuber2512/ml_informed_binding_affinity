@@ -47,3 +47,22 @@ function calculate_all_quantities(sol)
     "p_plcg" => 100*percent_phosphorylated_PLCg, "grb2_egfr" => 100*percent_GRB2_EGFR, "grb2_shc" => 100*percent_GRB2_SHC)
 
 end
+
+function return_index_order_of_data_for_likelihood(egf_dosage)
+    if egf_dosage == 20
+        return ["p_egfr", "p_plcg", "grb2_egfr", "grb2_shc"]
+    elseif egf_dosage == 2
+        return ["p_egfr", "p_plcg"]
+    elseif egf_dosage == 0.2
+        return ["p_egfr"]
+    end
+end
+
+function return_ligand_dose_order_for_likelihood()
+    return [20, 2, 0.2]
+end
+
+function return_training_data_names()
+    return ["000_processed_p_egfr_20.dict", "000_processed_p_plcg_20.dict", "000_processed_grb_egfr_20.dict", "000_processed_grb_shc_20.dict",
+    "000_processed_p_egfr_2.dict", "000_processed_p_plcg_2.dict", "000_processed_p_egfr_02.dict"]
+end
