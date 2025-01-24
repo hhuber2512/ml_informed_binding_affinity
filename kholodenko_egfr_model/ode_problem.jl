@@ -17,9 +17,9 @@ p: Vector{Pair{Num, Float64}} \n
 
 """
 function return_ode_problem_default_inputs(EGF_concentration)
-    reaction_network = egfr_ode("data/kholodenko1.xml",3,1)
+    reaction_network = egfr_ode("data/kholodenko1.xml",3,1);
     #convert Catalyst.ReactionSystem to an ModelingToolkit.ODESystem
-    odesys = complete(Catalyst.convert(ODESystem, reaction_network))
+    odesys = complete(Catalyst.convert(ODESystem, reaction_network));
     tspan = (0,120)
     t_expt = [0, 15, 30, 45, 60, 120]
     prob = ODEProblem(odesys, [], tspan, [], saveat=t_expt)

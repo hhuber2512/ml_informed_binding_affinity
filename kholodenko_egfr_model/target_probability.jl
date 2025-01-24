@@ -19,8 +19,7 @@ joint loglikelihood, type: DynamicPPL.Model
 
 """
 
-Turing.@model function logprob_regularized(data, odeproblem, σ, regularization, odesolver_timecourse, dosages)
-    
+Turing.@model function logprob_regularized(data, odeproblem, σ, regularization, odesolver_timecourse, initial_conditions, egf_dosage)
     #define prior distributions for parameters we will infer; forward and reverse reaction rates
     #units of concentration are nM
     k5b_est ~ Uniform(-6,0) #0.2 
@@ -53,6 +52,7 @@ Turing.@model function logprob_regularized(data, odeproblem, σ, regularization,
     @addlogprob! regularize(regularization, k9b_est, k9f_est,"k9") #regularization based on ratio of k9
     @addlogprob! regularize(regularization, k10b_est, k10f_est,"k10") #regularization based on ratio of k10
     
+    #per SciML docs, we make sure to input parameter map, rather than rely on parameter order    
     p_new = 
     [:k7b => 0.006, :k22f => 0.03, :k23b => 0.021, :k22b => 0.064, :k20f => 0.12, :k24b => 0.0429, :k14f => 6.0, :k25b => 0.03, 
     :k5b => 10^(k5b_est), :k13b => 10^(k13b_est), :k23f => 0.1, :k7f => 0.3, :k21f => 10^(k21f_est), :k11b => 0.0045, :k21b => 10^(k21b_est), 
@@ -62,62 +62,35 @@ Turing.@model function logprob_regularized(data, odeproblem, σ, regularization,
     :k12b => 10^(k12b_est), :K4 => 50.0, :K8 => 100.0, :k17b => 10^(k17b_est), :ADP => 1.0, :k3b => 0.01, :k9f => 10^(k9f_est), :ATP => 1.0,
     :k20b => 0.00024, :k10f => 10^(k10f_est), :V16 => 1.7, :k15f => 0.3, :k2b => 0.1, :k18f => 0.3, :k2f => 0.01, :k10b => 10^(k10b_est),
     :default_compartment => 1.0] 
-    
-    #redefine ode problem with sampled values
-    #per SciML docs, we make sure to input parameter map, rather than rely on parameter order
-    op = remake(odeproblem, p=p_new)
 
-    #timecourse simulation
+    #ode solver inputs
     save_at = odesolver_timecourse["saveat"]
     solver = odesolver_timecourse["solver"]
     abstol = odesolver_timecourse["abstol"]
     reltol = odesolver_timecourse["reltol"]
-
-    #response to 20nM EGF
-    egf = dosages[1]
-    odesys, u0, tspan, p = return_ode_problem_default_inputs(egf)
-    op = remake(op, u0=u0)
-    predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at);
-    #Early exit if simulation could not be computed successfully.
-    if predicted.retcode !== ReturnCode.Success
-        Turing.@addlogprob! -Inf
-        return
+    
+    #simulate for different initial conditions with proposed parameter values
+    all_predictions = Array{Vector{Float64}}(undef,length(initial_conditions))
+    Threads.@threads for i in 1:length(initial_conditions)
+        quantities_per_dose = Array{Float64}(undef,0)
+        op = remake(odeproblem, u0=initial_conditions[i], p=p_new)
+        predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at)
+        #Early exit if simulation could not be computed successfully.
+        if predicted.retcode !== ReturnCode.Success
+            Turing.@addlogprob! -Inf
+            return
+        end
+        experimental_quantities = calculate_all_quantities(predicted)
+        species_index = return_index_order_of_data_for_likelihood(egf_dosage[i])
+        [append!(quantities_per_dose, experimental_quantities[j]) for j in species_index]
+        all_predictions[i] = quantities_per_dose
     end
-    experimental_quantities = calculate_all_quantities(predicted)
-    species_index = return_index_order_of_data_for_likelihood(egf)
-    all_predictions = Array{Float64}(undef,0) #make sure type works as input for MvNormal
-    [append!(all_predictions, experimental_quantities[i]) for i in species_index];
 
-    #response to 2 EGF
-    egf = dosages[2]
-    odesys, u0, tspan, p = return_ode_problem_default_inputs(egf)
-    op = remake(op, u0=u0)
-    predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at);
-    #Early exit if simulation could not be computed successfully.
-    if predicted.retcode !== ReturnCode.Success
-        Turing.@addlogprob! -Inf
-        return
-    end
-    experimental_quantities = calculate_all_quantities(predicted)
-    species_index = return_index_order_of_data_for_likelihood(egf)
-    [append!(all_predictions, experimental_quantities[i]) for i in species_index];
-
-    #response to 0.2 EGF
-    egf = dosages[3]
-    odesys, u0, tspan, p = return_ode_problem_default_inputs(egf)
-    op = remake(op, u0=u0)
-    predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at);
-    #Early exit if simulation could not be computed successfully.
-    if predicted.retcode !== ReturnCode.Success
-        Turing.@addlogprob! -Inf
-        return
-    end
-    experimental_quantities = calculate_all_quantities(predicted)
-    species_index = return_index_order_of_data_for_likelihood(egf)
-    [append!(all_predictions, experimental_quantities[i]) for i in species_index];
+    all_predictions_1d = Array{Float64}(undef,0)
+    [append!(all_predictions_1d, all_predictions[i]) for i in 1:length(initial_conditions)]
 
     #data likelihood
-    data ~ MvNormal(all_predictions, σ) # MvNormal can take a vector input for standard deviation, and assumes covariance matrix is diagonal
+    data ~ MvNormal(all_predictions_1d, σ) # MvNormal can take a vector input for standard deviation, and assumes covariance matrix is diagonal
 end
 
 """
@@ -135,8 +108,7 @@ Should return: \n
 joint loglikelihood, type: DynamicPPL.Model
 
 """
-Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_timecourse, dosages)
-    
+Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_timecourse, initial_conditions, egf_dosage)
     #define prior distributions for parameters we will infer; forward and reverse reaction rates
     #units of concentration are nM
     k5b_est ~ Uniform(-6,0) #0.2 
@@ -158,6 +130,7 @@ Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_tim
     k10f_est ~ Uniform(-4,0) #0.01 
     k10b_est ~ Uniform(-6,0) #0.06
     
+    #per SciML docs, we make sure to input parameter map, rather than rely on parameter order    
     p_new = 
     [:k7b => 0.006, :k22f => 0.03, :k23b => 0.021, :k22b => 0.064, :k20f => 0.12, :k24b => 0.0429, :k14f => 6.0, :k25b => 0.03, 
     :k5b => 10^(k5b_est), :k13b => 10^(k13b_est), :k23f => 0.1, :k7f => 0.3, :k21f => 10^(k21f_est), :k11b => 0.0045, :k21b => 10^(k21b_est), 
@@ -167,60 +140,33 @@ Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_tim
     :k12b => 10^(k12b_est), :K4 => 50.0, :K8 => 100.0, :k17b => 10^(k17b_est), :ADP => 1.0, :k3b => 0.01, :k9f => 10^(k9f_est), :ATP => 1.0,
     :k20b => 0.00024, :k10f => 10^(k10f_est), :V16 => 1.7, :k15f => 0.3, :k2b => 0.1, :k18f => 0.3, :k2f => 0.01, :k10b => 10^(k10b_est),
     :default_compartment => 1.0] 
-    
-    #redefine ode problem with sampled values
-    #per SciML docs, we make sure to input parameter map, rather than rely on parameter order
-    op = remake(odeproblem, p=p_new)
 
-    #timecourse simulation
+    #ode solver inputs
     save_at = odesolver_timecourse["saveat"]
     solver = odesolver_timecourse["solver"]
     abstol = odesolver_timecourse["abstol"]
     reltol = odesolver_timecourse["reltol"]
-
-    #response to 20nM EGF
-    egf = dosages[1]
-    odesys, u0, tspan, p = return_ode_problem_default_inputs(egf)
-    op = remake(op, u0=u0)
-    predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at);
-    #Early exit if simulation could not be computed successfully.
-    if predicted.retcode !== ReturnCode.Success
-        Turing.@addlogprob! -Inf
-        return
+    
+    #simulate for different initial conditions with proposed parameter values
+    all_predictions = Array{Vector{Float64}}(undef,length(initial_conditions))
+    Threads.@threads for i in 1:length(initial_conditions)
+        quantities_per_dose = Array{Float64}(undef,0)
+        op = remake(odeproblem, u0=initial_conditions[i], p=p_new)
+        predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at)
+        #Early exit if simulation could not be computed successfully.
+        if predicted.retcode !== ReturnCode.Success
+            Turing.@addlogprob! -Inf
+            return
+        end
+        experimental_quantities = calculate_all_quantities(predicted)
+        species_index = return_index_order_of_data_for_likelihood(egf_dosage[i])
+        [append!(quantities_per_dose, experimental_quantities[j]) for j in species_index]
+        all_predictions[i] = quantities_per_dose
     end
-    experimental_quantities = calculate_all_quantities(predicted)
-    species_index = return_index_order_of_data_for_likelihood(egf)
-    all_predictions = Array{Float64}(undef,0) #make sure type works as input for MvNormal
-    [append!(all_predictions, experimental_quantities[i]) for i in species_index];
 
-    #response to 2 EGF
-    egf = dosages[2]
-    odesys, u0, tspan, p = return_ode_problem_default_inputs(egf)
-    op = remake(op, u0=u0)
-    predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at);
-    #Early exit if simulation could not be computed successfully.
-    if predicted.retcode !== ReturnCode.Success
-        Turing.@addlogprob! -Inf
-        return
-    end
-    experimental_quantities = calculate_all_quantities(predicted)
-    species_index = return_index_order_of_data_for_likelihood(egf)
-    [append!(all_predictions, experimental_quantities[i]) for i in species_index];
-
-    #response to 0.2 EGF
-    egf = dosages[3]
-    odesys, u0, tspan, p = return_ode_problem_default_inputs(egf)
-    op = remake(op, u0=u0)
-    predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at);
-    #Early exit if simulation could not be computed successfully.
-    if predicted.retcode !== ReturnCode.Success
-        Turing.@addlogprob! -Inf
-        return
-    end
-    experimental_quantities = calculate_all_quantities(predicted)
-    species_index = return_index_order_of_data_for_likelihood(egf)
-    [append!(all_predictions, experimental_quantities[i]) for i in species_index];
+    all_predictions_1d = Array{Float64}(undef,0)
+    [append!(all_predictions_1d, all_predictions[i]) for i in 1:length(initial_conditions)]
 
     #data likelihood
-    data ~ MvNormal(all_predictions, σ) # MvNormal can take a vector input for standard deviation, and assumes covariance matrix is diagonal
+    data ~ MvNormal(all_predictions_1d, σ) # MvNormal can take a vector input for standard deviation, and assumes covariance matrix is diagonal
 end

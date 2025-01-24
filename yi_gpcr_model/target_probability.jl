@@ -58,7 +58,7 @@ Turing.@model function logprob_regularized(data, odeproblem, σ, regularization,
     end
     fraction_activated_timecourse = calculate_active_G_protein_fraction(predicted)
 
-    #simulate dose responses in parallel using @spawned macro
+    #simulate dose responses in parallel using @threads macro
     type_ode = typeof(predicted)
     #initialize array. Didn't use undef, because this led to UndefRefError: access to undefined reference error
     predicted_responses = fill(predicted, length(ligand_dose))
