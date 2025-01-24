@@ -19,7 +19,7 @@ joint loglikelihood, type: DynamicPPL.Model
 
 """
 
-Turing.@model function logprob_regularized(data, odeproblem, σ, regularization, odesolver_timecourse, initial_conditions, egf_dosage)
+Turing.@model function logprob_regularized(data, odeproblem, σ, regularization, odesolver_timecourse, initial_conditions, egf_dosage, ode_sol_type)
     #define prior distributions for parameters we will infer; forward and reverse reaction rates
     #units of concentration are nM
     k5b_est ~ Uniform(-6,0) #0.2 
@@ -70,24 +70,24 @@ Turing.@model function logprob_regularized(data, odeproblem, σ, regularization,
     reltol = odesolver_timecourse["reltol"]
     
     #simulate for different initial conditions with proposed parameter values
-    all_predictions = Array{Vector{Float64}}(undef,length(initial_conditions))
+    predicted = Array{ode_sol_type}(undef,length(initial_conditions))
     Threads.@threads for i in 1:length(initial_conditions)
         quantities_per_dose = Array{Float64}(undef,0)
         op = remake(odeproblem, u0=initial_conditions[i], p=p_new)
-        predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at)
-        #Early exit if simulation could not be computed successfully.
-        if predicted.retcode !== ReturnCode.Success
-            Turing.@addlogprob! -Inf
-            return
-        end
-        experimental_quantities = calculate_all_quantities(predicted)
-        species_index = return_index_order_of_data_for_likelihood(egf_dosage[i])
-        [append!(quantities_per_dose, experimental_quantities[j]) for j in species_index]
-        all_predictions[i] = quantities_per_dose
+        predicted[i] = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at)
     end
 
+    #Early exit if simulation could not be computed successfully.
+    if any([predicted[i].retcode !== ReturnCode.Success for i in 1:length(predicted)])
+        Turing.@addlogprob! -Inf
+        return
+    end
+
+    #calculate experimental quantities and reshape for likelihood
+    experimental_quantities = [calculate_all_quantities(predicted[i]) for i in 1:length(initial_conditions)]
+    likelihood_quantities = [extract_likelihood_species(experimental_quantities[i], egf_dosage[i]) for i in 1:length(initial_conditions)]
     all_predictions_1d = Array{Float64}(undef,0)
-    [append!(all_predictions_1d, all_predictions[i]) for i in 1:length(initial_conditions)]
+    [append!(all_predictions_1d, likelihood_quantities[i]) for i in 1:length(initial_conditions)]
 
     #data likelihood
     data ~ MvNormal(all_predictions_1d, σ) # MvNormal can take a vector input for standard deviation, and assumes covariance matrix is diagonal
@@ -108,7 +108,7 @@ Should return: \n
 joint loglikelihood, type: DynamicPPL.Model
 
 """
-Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_timecourse, initial_conditions, egf_dosage)
+Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_timecourse, initial_conditions, egf_dosage, ode_sol_type)
     #define prior distributions for parameters we will infer; forward and reverse reaction rates
     #units of concentration are nM
     k5b_est ~ Uniform(-6,0) #0.2 
@@ -148,24 +148,24 @@ Turing.@model function logprob_unregularized(data, odeproblem, σ, odesolver_tim
     reltol = odesolver_timecourse["reltol"]
     
     #simulate for different initial conditions with proposed parameter values
-    all_predictions = Array{Vector{Float64}}(undef,length(initial_conditions))
+    predicted = Array{ode_sol_type}(undef,length(initial_conditions))
     Threads.@threads for i in 1:length(initial_conditions)
         quantities_per_dose = Array{Float64}(undef,0)
         op = remake(odeproblem, u0=initial_conditions[i], p=p_new)
-        predicted = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at)
-        #Early exit if simulation could not be computed successfully.
-        if predicted.retcode !== ReturnCode.Success
-            Turing.@addlogprob! -Inf
-            return
-        end
-        experimental_quantities = calculate_all_quantities(predicted)
-        species_index = return_index_order_of_data_for_likelihood(egf_dosage[i])
-        [append!(quantities_per_dose, experimental_quantities[j]) for j in species_index]
-        all_predictions[i] = quantities_per_dose
+        predicted[i] = DifferentialEquations.solve(op, solver, abstol=abstol, reltol=reltol, saveat=save_at)
     end
 
+    #Early exit if simulation could not be computed successfully.
+    if any([predicted[i].retcode !== ReturnCode.Success for i in 1:length(predicted)])
+        Turing.@addlogprob! -Inf
+        return
+    end
+
+    #calculate experimental quantities and reshape for likelihood
+    experimental_quantities = [calculate_all_quantities(predicted[i]) for i in 1:length(initial_conditions)]
+    likelihood_quantities = [extract_likelihood_species(experimental_quantities[i], egf_dosage[i]) for i in 1:length(initial_conditions)]
     all_predictions_1d = Array{Float64}(undef,0)
-    [append!(all_predictions_1d, all_predictions[i]) for i in 1:length(initial_conditions)]
+    [append!(all_predictions_1d, likelihood_quantities[i]) for i in 1:length(initial_conditions)]
 
     #data likelihood
     data ~ MvNormal(all_predictions_1d, σ) # MvNormal can take a vector input for standard deviation, and assumes covariance matrix is diagonal

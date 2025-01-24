@@ -66,3 +66,10 @@ function return_training_data_names()
     return ["000_processed_p_egfr_20.dict", "000_processed_p_plcg_20.dict", "000_processed_grb_egfr_20.dict", "000_processed_grb_shc_20.dict",
     "000_processed_p_egfr_2.dict", "000_processed_p_plcg_2.dict", "000_processed_p_egfr_02.dict"]
 end
+
+function extract_likelihood_species(experimental_quantities, egf_dosage)
+    quantities_per_dose = Array{Float64}(undef,0)
+    species_index = return_index_order_of_data_for_likelihood(egf_dosage)
+    [append!(quantities_per_dose, experimental_quantities[j]) for j in species_index]
+    return quantities_per_dose
+end
